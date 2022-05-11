@@ -1,7 +1,20 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using UnityEngine;
+
+public enum LayerType{
+    [Description("Hover")]
+    Hover,
+    [Description("Tile")]
+    Tile,
+
+    [Description("Hightlight")]
+    Hightlight
+}
+
+
 
 public class Chessboard : MonoBehaviour
 {
@@ -21,8 +34,10 @@ public class Chessboard : MonoBehaviour
 
 
 
+    // LOGIC
     private ChessPiece[,] chessPieces;
     private ChessPiece currentlyDragging;
+    private List<Vector2Int> availeableMoves = new List<Vector2Int>();
     private List<ChessPiece> deadWhites = new List<ChessPiece>();
     private List<ChessPiece> deadBlacks = new List<ChessPiece>();
 
@@ -34,7 +49,6 @@ public class Chessboard : MonoBehaviour
     private Vector3 bounds;
 
 
-    // LOGIC
     private void Awake(){
         GenerateAllTiles(tileSize,TILE_COUNT_X,TILE_COUNT_Y);
 
@@ -50,19 +64,21 @@ public class Chessboard : MonoBehaviour
         RaycastHit info;
         Ray ray = currentCamera.ScreenPointToRay(Input.mousePosition);
 
-        if(Physics.Raycast(ray,out info,100,LayerMask.GetMask("Tile","Hover"))){
+        if(Physics.Raycast(ray,out info,100,
+            LayerMask.GetMask(LayerType.Tile.ToString(),LayerType.Hover.ToString(),LayerType.Hightlight.ToString()))){
+
             //Get the inex of the tile i've hit
             Vector2Int hitPosition = LookupTileIndex(info.transform.gameObject);
             //if we're hovering a tile after not hoevering any tiles
             if(currentHover == -Vector2Int.one){
                 currentHover = hitPosition;
-                tiles[hitPosition.x,hitPosition.y].layer = LayerMask.NameToLayer("Hover");
+                tiles[hitPosition.x,hitPosition.y].layer = LayerMask.NameToLayer(LayerType.Hover.ToString());
             }
             //If we were already hovering a tile, change the previous one
             if(currentHover != hitPosition){
-                tiles[currentHover.x,currentHover.y].layer = LayerMask.NameToLayer("Tile");
+                tiles[currentHover.x,currentHover.y].layer = (ContainsValidMove(ref availeableMoves,currentHover)) ? LayerMask.NameToLayer(LayerType.Hightlight.ToString()) : LayerMask.NameToLayer(LayerType.Tile.ToString());
                 currentHover = hitPosition;
-                tiles[hitPosition.x,hitPosition.y].layer = LayerMask.NameToLayer("Hover");
+                tiles[hitPosition.x,hitPosition.y].layer = LayerMask.NameToLayer(LayerType.Hover.ToString());
             }
             //if we press down on the mouse
             if(Input.GetMouseButtonDown(0)){
@@ -70,6 +86,10 @@ public class Chessboard : MonoBehaviour
                     //Is it our turn?
                     if(true){
                         currentlyDragging = chessPieces[hitPosition.x,hitPosition.y];
+
+                        //Get a list of where i can gom hightlight tiles as well
+                        availeableMoves = currentlyDragging.GetAvailableMoves(ref chessPieces,TILE_COUNT_X,TILE_COUNT_Y);
+                        HightlightTiles();
                     }
 
                 }
@@ -79,22 +99,25 @@ public class Chessboard : MonoBehaviour
             if(currentlyDragging != null &&  Input.GetMouseButtonUp(0)){
                 Vector2Int previousPosition = new Vector2Int(currentlyDragging.currentX,currentlyDragging.currentY);
                 bool validMove = MoveTo(currentlyDragging,hitPosition.x, hitPosition.y);
-
                 if(!validMove){
                     currentlyDragging.SetPosition(GetTileCenter(previousPosition.x,previousPosition.y));
                 }
                 currentlyDragging = null;
+                RemoveHightlightTiles();
             
             }
 
         }else{
                 if(currentHover != -Vector2Int.one){
-                    tiles[currentHover.x,currentHover.y].layer = LayerMask.NameToLayer("Tile");
+                    tiles[currentHover.x,currentHover.y].layer = 
+                        (ContainsValidMove(ref availeableMoves,currentHover)) ? LayerMask.NameToLayer(LayerType.Hightlight.ToString()) : LayerMask.NameToLayer(LayerType.Tile.ToString());
                     currentHover = -Vector2Int.one;
                 }
                 if(currentlyDragging && Input.GetMouseButtonUp(0)){
                     currentlyDragging.SetPosition(GetTileCenter(currentlyDragging.currentX,currentlyDragging.currentY));
                     currentlyDragging=null;
+                    RemoveHightlightTiles();
+
                 }  
             }
 
@@ -212,7 +235,24 @@ private void PositionSinglePieces(int x, int y, bool force = false){
 private Vector3 GetTileCenter(int x, int y){
     return  new Vector3(x*tileSize, yOffSet, y*tileSize)-bounds+ new Vector3(tileSize/2,0,tileSize/2);
 }
+
+//Hightlight tiles
+private void HightlightTiles(){
+    for (int i = 0; i < availeableMoves.Count; i++)
+        tiles[availeableMoves[i].x,availeableMoves[i].y].layer = LayerMask.NameToLayer(LayerType.Hightlight.ToString());
+}
+private void RemoveHightlightTiles(){
+    for (int i = 0; i < availeableMoves.Count; i++)
+        tiles[availeableMoves[i].x,availeableMoves[i].y].layer = LayerMask.NameToLayer(LayerType.Tile.ToString());
+    availeableMoves.Clear();
+}
 //Operation
+    private bool ContainsValidMove(ref List<Vector2Int> moves, Vector2 pos){
+        for (int i = 0; i < moves.Count; i++)
+            if(moves[i].x == pos.x && moves[i].y == pos.y)
+                return true;
+        return false;
+    }
     private Vector2Int LookupTileIndex(GameObject hitInfo){
         
         for (int x = 0; x < TILE_COUNT_X; x++)
@@ -223,6 +263,9 @@ private Vector3 GetTileCenter(int x, int y){
     }
     private bool MoveTo(ChessPiece cp, int x, int y)
     {
+        if(!ContainsValidMove(ref availeableMoves,new Vector2(x,y)))
+            return false;
+
         Vector2Int previousPosition = new Vector2Int(cp.currentX,cp.currentY);
         //Is there another piece on the target Position?
         if(chessPieces[x,y] != null){
